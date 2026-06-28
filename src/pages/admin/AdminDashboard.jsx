@@ -1,20 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { Loader2, Users, FileText, CheckSquare, TrendingUp, AlertCircle, GraduationCap, BookOpenCheck } from 'lucide-react';
+import { Users, FileText, CheckSquare, TrendingUp, GraduationCap, BookOpenCheck } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { useTheme } from '../../context/ThemeContext';
 
 const AdminDashboard = () => {
   const [metrics, setMetrics] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const { isDark } = useTheme();
 
   useEffect(() => {
-    axios.get('/admin/dashboard')
-      .then(r => setMetrics(r.data.metrics))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load'))
-      .finally(() => setLoading(false));
+    const users       = JSON.parse(localStorage.getItem('examai-users') || '[]');
+    const exams       = JSON.parse(localStorage.getItem('examai-exams') || '[]');
+    const submissions = JSON.parse(localStorage.getItem('examai-submissions') || '[]');
+
+    const students    = users.filter(u => u.role === 'Student');
+    const teachers    = users.filter(u => u.role === 'Teacher');
+    const completed   = submissions.filter(s => s.status === 'Completed');
+    const avgScore    = completed.length > 0
+      ? (completed.reduce((a, s) => a + (s.totalMarks || 0), 0) / completed.length).toFixed(1)
+      : 0;
+    const aiSuccess   = submissions.length > 0
+      ? Math.round((completed.filter(s => s.evaluatedByAI).length / submissions.length) * 100)
+      : 0;
+
+    setMetrics({
+      totalUsers: users.length,
+      totalStudents: students.length,
+      totalTeachers: teachers.length,
+      totalExams: exams.length,
+      totalSubmissions: submissions.length,
+      evaluatedSubmissions: completed.length,
+      averageScore: avgScore,
+      aiSuccessRate: aiSuccess,
+    });
   }, []);
 
   const TooltipContent = ({ active, payload, label }) => {
@@ -27,37 +42,17 @@ const AdminDashboard = () => {
     );
   };
 
-  if (loading) return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Loader2 size={30} color="var(--primary)" className="animate-spin" />
-    </div>
-  );
-  if (error) return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
-      <div style={{ width: 48, height: 48, background: 'rgba(239,68,68,0.1)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <AlertCircle size={22} color="#ef4444" />
-      </div>
-      <p style={{ color: '#ef4444', fontWeight: 600 }}>{error}</p>
-      <button className="btn btn-primary btn-sm" onClick={() => window.location.reload()}>Retry</button>
-    </div>
-  );
   if (!metrics) return null;
 
   const stats = [
-    { icon: Users,       label: 'Total Users',  value: metrics.totalUsers  || 0, color: '#5b5ef4', bg: 'rgba(91,94,244,0.1)' },
-    { icon: FileText,    label: 'Total Exams',  value: metrics.totalExams  || 0, color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
-    { icon: CheckSquare, label: 'Submissions',  value: metrics.totalSubmissions || 0, color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
-    { icon: TrendingUp,  label: 'Avg Score',    value: Number(metrics.averageScore || 0).toFixed(1), color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+    { icon: Users,       label: 'Total Users',  value: metrics.totalUsers,       color: '#5b5ef4', bg: 'rgba(91,94,244,0.1)'  },
+    { icon: FileText,    label: 'Total Exams',  value: metrics.totalExams,        color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
+    { icon: CheckSquare, label: 'Submissions',  value: metrics.totalSubmissions,  color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
+    { icon: TrendingUp,  label: 'Avg Score',    value: metrics.averageScore,      color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
   ];
 
-  const roleData = [
-    { name: 'Students', value: metrics.totalStudents || 0 },
-    { name: 'Teachers', value: metrics.totalTeachers || 0 },
-  ];
-  const subData = [
-    { name: 'AI Graded', value: metrics.evaluatedSubmissions || 0 },
-    { name: 'Pending',   value: Math.max(0, (metrics.totalSubmissions || 0) - (metrics.evaluatedSubmissions || 0)) },
-  ];
+  const roleData = [{ name: 'Students', value: metrics.totalStudents }, { name: 'Teachers', value: metrics.totalTeachers }];
+  const subData  = [{ name: 'Graded',   value: metrics.evaluatedSubmissions }, { name: 'Pending', value: Math.max(0, metrics.totalSubmissions - metrics.evaluatedSubmissions) }];
 
   return (
     <div className="page-wrapper">
@@ -67,7 +62,6 @@ const AdminDashboard = () => {
           <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: 'var(--text)', margin: 0, letterSpacing: '-0.02em' }}>Admin Dashboard</h1>
         </div>
 
-        {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           {stats.map(({ icon: Icon, label, value, color, bg }) => (
             <div key={label} className="stat-card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -82,41 +76,33 @@ const AdminDashboard = () => {
           ))}
         </div>
 
-        {/* Role breakdown */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', marginBottom: '1.5rem' }}>
-          <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-            <div style={{ display: 'flex', gap: '1.25rem' }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ width: 48, height: 48, background: 'rgba(91,94,244,0.1)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem' }}>
-                  <GraduationCap size={21} color="#5b5ef4" />
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '2rem', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', gap: '1.5rem' }}>
+            {[{ icon: GraduationCap, label: 'Students', value: metrics.totalStudents, color: '#5b5ef4', bg: 'rgba(91,94,244,0.1)' },
+              { icon: BookOpenCheck, label: 'Teachers',  value: metrics.totalTeachers,  color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' }].map((item, i) => (
+              <React.Fragment key={item.label}>
+                {i > 0 && <div style={{ width: 1, background: 'var(--border)' }} />}
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ width: 44, height: 44, background: item.bg, borderRadius: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem' }}>
+                    <item.icon size={20} color={item.color} />
+                  </div>
+                  <p style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', margin: 0, lineHeight: 1 }}>{item.value}</p>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--muted)', margin: '0.25rem 0 0', fontWeight: 500 }}>{item.label}</p>
                 </div>
-                <p style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', margin: 0, lineHeight: 1 }}>{metrics.totalStudents || 0}</p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', margin: '0.25rem 0 0', fontWeight: 500 }}>Students</p>
-              </div>
-              <div style={{ width: 1, background: 'var(--border)' }} />
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ width: 48, height: 48, background: 'rgba(124,58,237,0.1)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem' }}>
-                  <BookOpenCheck size={21} color="#7c3aed" />
-                </div>
-                <p style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--text)', margin: 0, lineHeight: 1 }}>{metrics.totalTeachers || 0}</p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--muted)', margin: '0.25rem 0 0', fontWeight: 500 }}>Teachers</p>
-              </div>
-            </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.5rem', fontWeight: 600 }}>AI Success Rate</p>
-              <p style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--text)', margin: '0 0 0.5rem' }}>{metrics.aiSuccessRate || 0}%</p>
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${metrics.aiSuccessRate || 0}%` }} />
-              </div>
-            </div>
+              </React.Fragment>
+            ))}
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.5rem', fontWeight: 600 }}>AI Success Rate</p>
+            <p style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--text)', margin: '0 0 0.5rem' }}>{metrics.aiSuccessRate}%</p>
+            <div className="progress-bar"><div className="progress-fill" style={{ width: `${metrics.aiSuccessRate}%` }} /></div>
           </div>
         </div>
 
-        {/* Charts */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
           {[
-            { title: 'User Distribution', sub: 'Students vs Teachers', data: roleData, colors: ['#5b5ef4', '#7c3aed'] },
-            { title: 'Submission Status',  sub: `AI Success Rate: ${metrics.aiSuccessRate || 0}%`, data: subData, colors: ['#10b981', '#f59e0b'] },
+            { title: 'User Distribution',  sub: 'Students vs Teachers',          data: roleData, colors: ['#5b5ef4', '#7c3aed'] },
+            { title: 'Submission Status',   sub: `Graded vs Pending`,             data: subData,  colors: ['#10b981', '#f59e0b'] },
           ].map(({ title, sub, data, colors }) => (
             <div key={title} className="card" style={{ padding: '1.75rem' }}>
               <div style={{ marginBottom: '1.25rem' }}>

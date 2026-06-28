@@ -1,17 +1,14 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useContext } from 'react';
 import { useDropzone } from 'react-dropzone';
-import imageCompression from 'browser-image-compression';
-import axios from 'axios';
-import toast from 'react-hot-toast';
 import { useParams, useNavigate } from 'react-router-dom';
-import { UploadCloud, X, Loader2, ArrowLeft, Send, ImagePlus, CheckCircle2, Circle } from 'lucide-react';
+import { AuthContext } from '../../context/AuthContext';
+import toast from 'react-hot-toast';
+import { UploadCloud, X, Loader2, ArrowLeft, Send, ImagePlus, CheckCircle2 } from 'lucide-react';
 
 const MCQAnswerRow = ({ question, index, selected, onSelect }) => (
   <div style={{ marginBottom: '1.5rem' }}>
     <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem', alignItems: 'flex-start' }}>
-      <div style={{ width: 28, height: 28, flexShrink: 0, background: 'linear-gradient(135deg, #5b5ef4, #7c3aed)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '0.78rem', marginTop: 2 }}>
-        {index + 1}
-      </div>
+      <div style={{ width: 28, height: 28, flexShrink: 0, background: 'linear-gradient(135deg, #5b5ef4, #7c3aed)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '0.78rem', marginTop: 2 }}>{index + 1}</div>
       <div>
         <p style={{ margin: 0, color: 'var(--text)', fontWeight: 500, fontSize: '0.9375rem', lineHeight: 1.5 }}>{question.questionText}</p>
         <span style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: 2, display: 'inline-block' }}>{question.maxMarks} marks</span>
@@ -19,11 +16,7 @@ const MCQAnswerRow = ({ question, index, selected, onSelect }) => (
     </div>
     <div style={{ marginLeft: '2.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
       {question.options?.map((opt, oi) => (
-        <button
-          key={oi} type="button"
-          onClick={() => onSelect(index, oi)}
-          className={`mcq-option${selected === oi ? ' selected' : ''}`}
-        >
+        <button key={oi} type="button" onClick={() => onSelect(index, oi)} className={`mcq-option${selected === oi ? ' selected' : ''}`}>
           <span className="mcq-letter">{String.fromCharCode(65 + oi)}</span>
           <span style={{ flex: 1, textAlign: 'left' }}>{opt}</span>
           {selected === oi && <CheckCircle2 size={16} color="var(--primary)" />}
@@ -34,105 +27,131 @@ const MCQAnswerRow = ({ question, index, selected, onSelect }) => (
 );
 
 const SubmitExam = () => {
-  const [images, setImages] = useState([]);
-  const [mcqAnswers, setMcqAnswers] = useState({}); // { questionIndex: optionIndex }
+  const { user } = useContext(AuthContext);
+  const [images, setImages]       = useState([]);
+  const [mcqAnswers, setMcqAnswers] = useState({});
   const [isUploading, setIsUploading] = useState(false);
   const [exam, setExam] = useState(null);
   const { id: examId } = useParams();
   const navigate = useNavigate();
 
   useEffect(() => {
-    axios.get(`/exams/${examId}`).then(r => setExam(r.data)).catch(() => {});
+    const exams = JSON.parse(localStorage.getItem('examai-exams') || '[]');
+    const found = exams.find(e => e._id === examId);
+    setExam(found || null);
     return () => images.forEach(img => URL.revokeObjectURL(img.preview));
   }, [examId]);
 
-  const onDrop = useCallback(async (acceptedFiles) => {
-    const toastId = toast.loading('Compressing images…');
-    try {
-      const compressed = await Promise.all(acceptedFiles.map(f => imageCompression(f, { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true })));
-      setImages(prev => [...prev, ...compressed.map(f => ({ file: f, preview: URL.createObjectURL(f) }))]);
-      toast.success(`${compressed.length} image(s) ready`, { id: toastId });
-    } catch { toast.error('Compression failed', { id: toastId }); }
+  const onDrop = useCallback((acceptedFiles) => {
+    const newImgs = acceptedFiles.map(f => ({ file: f, preview: URL.createObjectURL(f) }));
+    setImages(prev => [...prev, ...newImgs]);
+    toast.success(`${acceptedFiles.length} image(s) added`);
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'image/*': [] } });
+  const { getRootProps, getInputProps, isDragActive }   = useDropzone({ onDrop, accept: { 'image/*': [] } });
   const { getRootProps: getMoreProps, getInputProps: getMoreInputProps } = useDropzone({ onDrop, accept: { 'image/*': [] } });
 
-  const hasMCQs      = exam?.questions?.some(q => q.type === 'mcq');
-  const hasWritten   = exam?.questions?.some(q => q.type !== 'mcq');
-  const mcqQuestions = exam?.questions?.filter(q => q.type === 'mcq')  || [];
-  const writtenQs    = exam?.questions?.filter(q => q.type !== 'mcq')  || [];
-
-  // Check all MCQs answered
-  const mcqComplete = mcqQuestions.every((_, i) => {
-    const realIndex = exam.questions.findIndex((q, ri) => q.type === 'mcq' && mcqQuestions.indexOf(q) === i);
-    return mcqAnswers[realIndex] !== undefined;
-  });
+  const hasMCQs    = exam?.questions?.some(q => q.type === 'mcq');
+  const hasWritten = exam?.questions?.some(q => q.type !== 'mcq');
+  const mcqQs      = exam?.questions?.filter(q => q.type === 'mcq') || [];
+  const writtenQs  = exam?.questions?.filter(q => q.type !== 'mcq') || [];
 
   const handleSubmit = async () => {
     if (hasMCQs) {
-      const allMcqIndexes = exam.questions.map((q, i) => q.type === 'mcq' ? i : -1).filter(i => i >= 0);
-      for (const i of allMcqIndexes) {
+      const mcqIndexes = exam.questions.map((q, i) => q.type === 'mcq' ? i : -1).filter(i => i >= 0);
+      for (const i of mcqIndexes) {
         if (mcqAnswers[i] === undefined) { toast.error('Please answer all MCQ questions'); return; }
       }
     }
-    if (hasWritten && !images.length) { toast.error('Upload at least one answer sheet image'); return; }
+    if (hasWritten && !images.length) { toast.error('Upload at least one answer sheet'); return; }
+
     setIsUploading(true);
-    const fd = new FormData();
-    fd.append('examId', examId);
-    images.forEach(img => fd.append('images', img.file));
-    // Attach MCQ answers as JSON
-    if (hasMCQs) {
-      const answersPayload = exam.questions.map((q, i) => {
-        if (q.type !== 'mcq') return null;
-        const selectedIdx = mcqAnswers[i];
-        return { questionIndex: i, selectedOption: q.options?.[selectedIdx] ?? null, selectedOptionIndex: selectedIdx };
-      }).filter(Boolean);
-      fd.append('mcqAnswers', JSON.stringify(answersPayload));
-    }
-    try {
-      const { data } = await axios.post('/submissions', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      toast.success('Submitted successfully!');
-      navigate(`/student/submission/${data._id}`);
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Submission failed');
-    } finally { setIsUploading(false); }
+    await new Promise(r => setTimeout(r, 900));
+
+    // Auto-grade MCQs
+    const feedback = exam.questions.map((q, i) => {
+      if (q.type === 'mcq') {
+        const selectedIdx   = mcqAnswers[i];
+        const selectedOpt   = q.options?.[selectedIdx];
+        const isCorrect     = q.correctAnswers?.includes(selectedOpt);
+        return {
+          question: i + 1,
+          type: 'mcq',
+          score: isCorrect ? q.maxMarks : 0,
+          maxMarks: q.maxMarks,
+          isCorrect,
+          selectedOption: selectedOpt || '—',
+          correctOption: q.correctAnswers?.[0] || '',
+        };
+      } else {
+        // Written — give a fake AI grade for demo
+        const score = Math.floor(Math.random() * (q.maxMarks - Math.floor(q.maxMarks * 0.4) + 1)) + Math.floor(q.maxMarks * 0.4);
+        return {
+          question: i + 1,
+          type: q.type,
+          score,
+          maxMarks: q.maxMarks,
+          remarks: 'Good attempt. Key concepts covered with room for more detail.',
+        };
+      }
+    });
+
+    const totalMarks = feedback.reduce((s, f) => s + f.score, 0);
+
+    const newSub = {
+      _id: Date.now().toString(),
+      examId: exam._id,
+      examTitle: exam.title,
+      studentId: user?.id,
+      studentName: user?.name,
+      status: 'Completed',
+      totalMarks,
+      confidence: Math.floor(Math.random() * 20) + 78,
+      evaluatedByAI: true,
+      feedback,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const existing = JSON.parse(localStorage.getItem('examai-submissions') || '[]');
+    localStorage.setItem('examai-submissions', JSON.stringify([...existing, newSub]));
+
+    toast.success('Submitted & graded!');
+    navigate(`/student/submission/${newSub._id}`);
+    setIsUploading(false);
   };
 
-  const canSubmit = !isUploading && (hasMCQs ? mcqComplete : true) && (hasWritten ? images.length > 0 : true);
+  const canSubmit = !isUploading && (hasMCQs ? exam?.questions?.map((q,i)=>q.type==='mcq'?i:-1).filter(i=>i>=0).every(i=>mcqAnswers[i]!==undefined) : true) && (hasWritten ? images.length > 0 : true);
+
+  if (!exam) return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
+      Exam not found.
+    </div>
+  );
 
   return (
     <div className="page-wrapper">
       <div className="page-content" style={{ maxWidth: 760 }}>
-        {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
-          <button onClick={() => navigate('/student/dashboard')} className="btn btn-ghost" style={{ width: 36, height: 36, padding: 0, justifyContent: 'center', flexShrink: 0 }}>
-            <ArrowLeft size={16} />
-          </button>
+          <button onClick={() => navigate('/student/dashboard')} className="btn btn-ghost" style={{ width: 36, height: 36, padding: 0, justifyContent: 'center', flexShrink: 0 }}><ArrowLeft size={16} /></button>
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text)', margin: 0, letterSpacing: '-0.02em' }}>Submit Answers</h1>
-            {exam && <p style={{ color: 'var(--muted)', fontSize: '0.875rem', margin: 0 }}>{exam.title}</p>}
+            <p style={{ color: 'var(--muted)', fontSize: '0.875rem', margin: 0 }}>{exam.title}</p>
           </div>
         </div>
 
-        {/* MCQ Section */}
         {hasMCQs && (
           <div className="card" style={{ padding: '1.75rem', marginBottom: '1.25rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
               <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text)', margin: 0 }}>Multiple Choice Questions</h2>
-              <span className="badge badge-indigo">{mcqQuestions.length} Q</span>
+              <span className="badge badge-indigo">{mcqQs.length} Q</span>
             </div>
             {exam.questions.map((q, i) => q.type === 'mcq' && (
-              <MCQAnswerRow
-                key={i} question={q} index={i}
-                selected={mcqAnswers[i]}
-                onSelect={(qi, oi) => setMcqAnswers(prev => ({ ...prev, [qi]: oi }))}
-              />
+              <MCQAnswerRow key={i} question={q} index={i} selected={mcqAnswers[i]} onSelect={(qi, oi) => setMcqAnswers(prev => ({ ...prev, [qi]: oi }))} />
             ))}
           </div>
         )}
 
-        {/* Written Section */}
         {hasWritten && (
           <div className="card" style={{ padding: '1.75rem', marginBottom: '1.25rem' }}>
             {writtenQs.length > 0 && (
@@ -152,7 +171,6 @@ const SubmitExam = () => {
                 <div className="divider" style={{ margin: '1.5rem 0' }} />
               </>
             )}
-
             <p style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.875rem' }}>Upload Answer Sheet(s)</p>
             <div {...getRootProps()} className={`dropzone${isDragActive ? ' active' : ''}`}>
               <input {...getInputProps()} />
@@ -161,13 +179,8 @@ const SubmitExam = () => {
               </div>
               {isDragActive
                 ? <p style={{ color: 'var(--primary)', fontWeight: 600, margin: 0 }}>Drop here…</p>
-                : <>
-                    <p style={{ color: 'var(--text)', fontWeight: 600, margin: '0 0 0.375rem', fontSize: '0.9375rem' }}>Drag & drop answer sheets</p>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.8125rem', margin: 0 }}>or click to browse · auto-compressed · multiple OK</p>
-                  </>
-              }
+                : <><p style={{ color: 'var(--text)', fontWeight: 600, margin: '0 0 0.375rem', fontSize: '0.9375rem' }}>Drag & drop answer sheets</p><p style={{ color: 'var(--muted)', fontSize: '0.8125rem', margin: 0 }}>or click to browse</p></>}
             </div>
-
             {images.length > 0 && (
               <div style={{ marginTop: '1.25rem' }}>
                 <p style={{ fontSize: '0.8rem', color: 'var(--muted)', fontWeight: 600, marginBottom: '0.625rem' }}>{images.length} image(s) selected</p>
@@ -181,8 +194,7 @@ const SubmitExam = () => {
                     </div>
                   ))}
                   <div {...getMoreProps()} style={{ border: '2px dashed var(--border)', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', aspectRatio: '1', background: 'var(--bg-elevated)' }}>
-                    <input {...getMoreInputProps()} />
-                    <ImagePlus size={18} color="var(--subtle)" />
+                    <input {...getMoreInputProps()} /><ImagePlus size={18} color="var(--subtle)" />
                   </div>
                 </div>
               </div>
@@ -191,7 +203,7 @@ const SubmitExam = () => {
         )}
 
         <button onClick={handleSubmit} disabled={!canSubmit} className="btn btn-primary" style={{ width: '100%', padding: '0.9rem', justifyContent: 'center', fontSize: '0.9375rem', opacity: canSubmit ? 1 : 0.5 }}>
-          {isUploading ? <><Loader2 size={16} className="animate-spin" /> Submitting…</> : <><Send size={15} /> Submit Answers</>}
+          {isUploading ? <><Loader2 size={16} className="animate-spin" /> Submitting & Grading…</> : <><Send size={15} /> Submit Answers</>}
         </button>
       </div>
     </div>

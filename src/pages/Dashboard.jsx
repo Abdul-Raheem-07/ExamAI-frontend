@@ -1,9 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Clock, CheckCircle, ChevronRight, PlusSquare, Upload, Loader2, FileText, Trophy, TrendingUp } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { BookOpen, Clock, CheckCircle, ChevronRight, PlusSquare, Upload, Loader2, FileText, TrendingUp } from 'lucide-react';
 
 const StatusBadge = ({ status }) => {
   const map = {
@@ -17,6 +15,23 @@ const StatusBadge = ({ status }) => {
   return <span className={map[status] || 'badge badge-slate'}>{status}</span>;
 };
 
+// ── localStorage helpers ──────────────────────────────────────
+const getExams = () => {
+  try { return JSON.parse(localStorage.getItem('examai-exams') || '[]'); }
+  catch { return []; }
+};
+const getSubmissions = (userId, role) => {
+  try {
+    const all = JSON.parse(localStorage.getItem('examai-submissions') || '[]');
+    if (role === 'Student') return all.filter(s => s.studentId === userId);
+    if (role === 'Teacher') {
+      const myExamIds = getExams().filter(e => e.teacherId === userId).map(e => e._id);
+      return all.filter(s => myExamIds.includes(s.examId));
+    }
+    return all;
+  } catch { return []; }
+};
+
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
   const navigate = useNavigate();
@@ -25,16 +40,16 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [eRes, sRes] = await Promise.all([axios.get('/exams'), axios.get('/submissions')]);
-        setExams(eRes.data || []);
-        setSubmissions(sRes.data || []);
-      } catch { toast.error('Failed to load dashboard'); }
-      finally { setLoading(false); }
-    };
-    load();
-  }, []);
+    setTimeout(() => {
+      const allExams = getExams();
+      const myExams = user?.role === 'Teacher'
+        ? allExams.filter(e => e.teacherId === user.id)
+        : allExams.filter(e => e.status === 'Active');
+      setExams(myExams);
+      setSubmissions(getSubmissions(user?.id, user?.role));
+      setLoading(false);
+    }, 400);
+  }, [user]);
 
   if (loading) return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -45,14 +60,16 @@ const Dashboard = () => {
   const isStudent = user?.role === 'Student';
   const isTeacher = user?.role === 'Teacher';
   const graded    = submissions.filter(s => s.status === 'Completed').length;
-  const pending   = submissions.filter(s => s.status === 'Pending' || s.status === 'Processing').length;
-  const avgScore  = graded > 0 ? (submissions.filter(s => s.status === 'Completed').reduce((a, s) => a + (s.totalMarks || 0), 0) / graded).toFixed(1) : '—';
+  const pending   = submissions.filter(s => s.status === 'Pending').length;
+  const avgScore  = graded > 0
+    ? (submissions.filter(s => s.status === 'Completed').reduce((a, s) => a + (s.totalMarks || 0), 0) / graded).toFixed(1)
+    : '—';
 
   const stats = [
-    { icon: BookOpen, label: isStudent ? 'Available Exams' : 'My Exams', value: exams.length, color: '#5b5ef4', bg: 'rgba(91,94,244,0.1)' },
-    { icon: CheckCircle, label: 'Graded', value: graded, color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
-    { icon: Clock, label: 'Pending', value: pending, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
-    { icon: TrendingUp, label: 'Avg Score', value: avgScore, color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
+    { icon: BookOpen,    label: isStudent ? 'Available Exams' : 'My Exams', value: exams.length,  color: '#5b5ef4', bg: 'rgba(91,94,244,0.1)'  },
+    { icon: CheckCircle, label: 'Graded',                                   value: graded,         color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
+    { icon: Clock,       label: 'Pending',                                  value: pending,        color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+    { icon: TrendingUp,  label: 'Avg Score',                                value: avgScore,       color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' },
   ];
 
   return (
@@ -143,10 +160,10 @@ const Dashboard = () => {
                   >
                     <div style={{ minWidth: 0 }}>
                       <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)', margin: '0 0 0.125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {sub.examId?.title || 'Exam'}
+                        {sub.examTitle || 'Exam'}
                       </p>
-                      {!isStudent && sub.studentId && (
-                        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', margin: 0 }}>{sub.studentId.name}</p>
+                      {!isStudent && sub.studentName && (
+                        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', margin: 0 }}>{sub.studentName}</p>
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0 }}>
