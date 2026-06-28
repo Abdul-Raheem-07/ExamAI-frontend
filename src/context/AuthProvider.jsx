@@ -1,98 +1,81 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import toast from 'react-hot-toast';
 import { AuthContext } from './AuthContext.js';
 
-// 🔥 API base URL (from env)
-const API = import.meta.env.VITE_API_URL;
+const DEFAULT_USERS = [
+  { id: '1', name: 'Ali Student', email: 'student@demo.com', password: '123456', role: 'Student', token: 'fake-student-token' },
+  { id: '2', name: 'Sir Ahmad',   email: 'teacher@demo.com', password: '123456', role: 'Teacher', token: 'fake-teacher-token' },
+  { id: '3', name: 'Admin User',  email: 'admin@demo.com',   password: '123456', role: 'Admin',   token: 'fake-admin-token'   },
+];
+
+if (!localStorage.getItem('examai-users')) {
+  localStorage.setItem('examai-users', JSON.stringify(DEFAULT_USERS));
+}
+
+const getUsers = () => {
+  try { return JSON.parse(localStorage.getItem('examai-users') || '[]'); }
+  catch { return DEFAULT_USERS; }
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ─── INIT AUTH ─────────────────────────────────────────────
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-
     if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
-
-        if (parsedUser?.token) {
-          axios.defaults.headers.common['Authorization'] =
-            `Bearer ${parsedUser.token}`;
-        }
-      } catch (err) {
-        localStorage.removeItem('user');
-      }
+      try { setUser(JSON.parse(storedUser)); }
+      catch { localStorage.removeItem('user'); }
     }
-
     setLoading(false);
   }, []);
 
-  // ─── LOGIN ────────────────────────────────────────────────
   const login = async (email, password) => {
-    try {
-      const { data } = await axios.post(`${API}/auth/login`, {
-        email,
-        password,
-      });
-
-      setUser(data);
-      localStorage.setItem('user', JSON.stringify(data));
-
-      if (data?.token) {
-        axios.defaults.headers.common['Authorization'] =
-          `Bearer ${data.token}`;
-      }
-
-      toast.success('Logged in successfully!');
-      return data;
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Login failed');
-      throw error;
+    await new Promise(r => setTimeout(r, 700));
+    const users = getUsers();
+    const found = users.find(
+      u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+    );
+    if (!found) {
+      toast.error('Invalid email or password');
+      throw new Error('Invalid credentials');
     }
+    const { password: _, ...safeUser } = found;
+    setUser(safeUser);
+    localStorage.setItem('user', JSON.stringify(safeUser));
+    toast.success('Logged in successfully!');
+    return safeUser;
   };
 
-  // ─── REGISTER ─────────────────────────────────────────────
   const register = async (name, email, password, role) => {
-    try {
-      const { data } = await axios.post(`${API}/auth/register`, {
-        name,
-        email,
-        password,
-        role,
-      });
-
-      setUser(data);
-      localStorage.setItem('user', JSON.stringify(data));
-
-      if (data?.token) {
-        axios.defaults.headers.common['Authorization'] =
-          `Bearer ${data.token}`;
-      }
-
-      toast.success('Registered successfully!');
-      return data;
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Registration failed');
-      throw error;
+    await new Promise(r => setTimeout(r, 700));
+    const users = getUsers();
+    if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) {
+      toast.error('Email already registered');
+      throw new Error('Email taken');
     }
+    const newUser = {
+      id: Date.now().toString(),
+      name, email, password, role,
+      token: 'fake-token-' + Date.now(),
+    };
+    localStorage.setItem('examai-users', JSON.stringify([...users, newUser]));
+    const { password: _, ...safeUser } = newUser;
+    setUser(safeUser);
+    localStorage.setItem('user', JSON.stringify(safeUser));
+    sessionStorage.setItem('examai-show-theme-modal', 'yes');
+    toast.success('Account created!');
+    return safeUser;
   };
 
-  // ─── LOGOUT ───────────────────────────────────────────────
   const logout = () => {
     setUser(null);
     localStorage.removeItem('user');
-    delete axios.defaults.headers.common['Authorization'];
     toast.success('Logged out successfully');
   };
 
   return (
-    <AuthContext.Provider
-      value={{ user, loading, login, register, logout }}
-    >
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );
