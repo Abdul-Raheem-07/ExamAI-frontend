@@ -15,11 +15,11 @@ const StatusBadge = ({ status }) => {
   return <span className={map[status] || 'badge badge-slate'}>{status}</span>;
 };
 
-// ── localStorage helpers ──────────────────────────────────────
 const getExams = () => {
   try { return JSON.parse(localStorage.getItem('examai-exams') || '[]'); }
   catch { return []; }
 };
+
 const getSubmissions = (userId, role) => {
   try {
     const all = JSON.parse(localStorage.getItem('examai-submissions') || '[]');
@@ -42,11 +42,17 @@ const Dashboard = () => {
   useEffect(() => {
     setTimeout(() => {
       const allExams = getExams();
+      const mySubmissions = getSubmissions(user?.id, user?.role);
+
+      // student ke liye — jo exams already submit ho chuke hain unhe hatao
+      const submittedExamIds = new Set(mySubmissions.map(s => s.examId));
+
       const myExams = user?.role === 'Teacher'
         ? allExams.filter(e => e.teacherId === user.id)
-        : allExams.filter(e => e.status === 'Active');
+        : allExams.filter(e => e.status === 'Active' && !submittedExamIds.has(e._id));
+
       setExams(myExams);
-      setSubmissions(getSubmissions(user?.id, user?.role));
+      setSubmissions(mySubmissions);
       setLoading(false);
     }, 400);
   }, [user]);
@@ -75,7 +81,6 @@ const Dashboard = () => {
   return (
     <div className="page-wrapper">
       <div className="page-content">
-        {/* Header */}
         <div style={{ marginBottom: '2rem' }}>
           <p className="section-eyebrow">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: 'var(--text)', margin: '0 0 0.375rem', letterSpacing: '-0.02em' }}>
@@ -86,7 +91,6 @@ const Dashboard = () => {
           </p>
         </div>
 
-        {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(168px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           {stats.map(({ icon: Icon, label, value, color, bg }) => (
             <div key={label} className="stat-card" style={{ padding: '1.25rem' }}>
@@ -101,9 +105,7 @@ const Dashboard = () => {
           ))}
         </div>
 
-        {/* Content Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: submissions.length ? '1fr 1fr' : '1fr', gap: '1.5rem' }}>
-          {/* Exams */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
@@ -121,7 +123,7 @@ const Dashboard = () => {
                   <FileText size={22} color="var(--subtle)" />
                 </div>
                 <p style={{ color: 'var(--muted)', margin: 0, fontSize: '0.9rem' }}>
-                  {isTeacher ? 'No exams yet. Create your first one!' : 'No exams available right now.'}
+                  {isTeacher ? 'No exams yet. Create your first one!' : 'All exams submitted! Check your results below.'}
                 </p>
               </div>
             ) : (
@@ -135,7 +137,7 @@ const Dashboard = () => {
                       </div>
                       <p style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{exam.title}</p>
                     </div>
-                    {isStudent && exam.status === 'Active' && (
+                    {isStudent && (
                       <button onClick={() => navigate(`/student/exam/${exam._id}/submit`)} className="btn btn-primary btn-xs" style={{ flexShrink: 0 }}>
                         <Upload size={11} /> Submit
                       </button>
@@ -146,7 +148,6 @@ const Dashboard = () => {
             )}
           </div>
 
-          {/* Submissions */}
           {submissions.length > 0 && (
             <div>
               <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text)', margin: '0 0 1rem' }}>Submissions</h2>
