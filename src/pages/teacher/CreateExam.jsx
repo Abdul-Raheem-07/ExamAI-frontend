@@ -160,42 +160,51 @@ const CreateExam = () => {
     });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!title.trim()) { toast.error('Title is required'); return; }
-    if (!rubric.trim()) { toast.error('Rubric/grading guide is required'); return; }
-    for (const q of questions) {
-      if (!q.questionText.trim()) { toast.error('All questions must have text'); return; }
-      if (q.type === 'mcq') {
-        if (q.options.some(o => !o.trim())) { toast.error('Fill all MCQ options'); return; }
-        if (q.correctAnswers.length === 0)   { toast.error('Mark at least one correct answer per MCQ'); return; }
-      }
-      if (!q.maxMarks || q.maxMarks <= 0) { toast.error('Marks must be > 0'); return; }
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (!title.trim()) { toast.error('Title is required'); return; }
+  if (!rubric.trim()) { toast.error('Rubric is required'); return; }
+  for (const q of questions) {
+    if (!q.questionText.trim()) { toast.error('All questions must have text'); return; }
+    if (q.type === 'mcq') {
+      if (q.options.some(o => !o.trim())) { toast.error('Fill all MCQ options'); return; }
+      if (q.correctAnswers.length === 0) { toast.error('Mark at least one correct answer per MCQ'); return; }
     }
-    setSaving(true);
-    try {
-      await axios.post('/exams', {
-        title: title.trim(),
-        description: description.trim(),
-        rubric: rubric.trim(),
-        questions: questions.map(q => ({
-          questionText: q.questionText.trim(),
-          type: q.type,
-          maxMarks: Number(q.maxMarks),
-          ...(q.type === 'mcq' ? {
-            options: q.options,
-            correctAnswers: q.correctAnswers.map(i => q.options[i]),
-          } : {}),
-        })),
-      });
-      toast.success('Exam created!');
-      navigate('/teacher/dashboard');
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to create exam');
-    } finally {
-      setSaving(false);
-    }
+    if (!q.maxMarks || q.maxMarks <= 0) { toast.error('Marks must be > 0'); return; }
+  }
+
+  setSaving(true);
+
+  // ─── FAKE SAVE (no backend) ───────────────────────────────
+  await new Promise(r => setTimeout(r, 800));
+
+  const newExam = {
+    _id: Date.now().toString(),
+    title: title.trim(),
+    description: description.trim(),
+    rubric: rubric.trim(),
+    status: 'Active',
+    questions: questions.map((q, i) => ({
+      _id: i.toString(),
+      questionText: q.questionText.trim(),
+      type: q.type,
+      maxMarks: Number(q.maxMarks),
+      ...(q.type === 'mcq' ? {
+        options: q.options,
+        correctAnswers: q.correctAnswers.map(i => q.options[i]),
+      } : {}),
+    })),
+    createdAt: new Date().toISOString(),
   };
+
+  // localStorage mein save
+  const existing = JSON.parse(localStorage.getItem('examai-exams') || '[]');
+  localStorage.setItem('examai-exams', JSON.stringify([...existing, newExam]));
+
+  toast.success('Exam created!');
+  navigate('/teacher/dashboard');
+  setSaving(false);
+};
 
   const totalMarks = questions.reduce((s, q) => s + (Number(q.maxMarks) || 0), 0);
 
